@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Mapa Interativo de Risco - Brasil</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+      overflow: hidden;
+    }
+
+    .header {
+      margin-bottom: 15px;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 8px 0;
+      color: #333;
+    }
+
+    .descricao {
+      font-size: 14px;
+      color: #555;
+      margin: 0 0 6px 0;
+      max-width: 900px;
+      line-height: 1.5;
+    }
+
+    .referencia {
+      font-size: 12px;
+      color: #777;
+      margin: 0;
+      max-width: 900px;
+    }
+
+    .container {
+      display: flex;
+      gap: 20px;
+      height: calc(100vh - 185px);
+    }
+
+    .map-container {
+      flex: 1;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      padding: 15px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #map:active {
+      cursor: grabbing;
+    }
+
+    #map path.municipio {
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+
+    #map path.municipio:hover {
+      filter: brightness(1.1);
+      stroke: #000;
+      stroke-width: 1.5px;
+    }
+
+    #map path.municipio.selected {
+      stroke: #2196F3;
+      stroke-width: 2px;
+      filter: brightness(0.85);
+    }
+
+    /* Modal de detalhes */
+    .detail-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .detail-modal.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .detail-panel {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+      width: 420px;
+      max-width: 90vw;
+      overflow: hidden;
+      transform: scale(0.9);
+      opacity: 0;
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+      cursor: move;
+    }
+
+    .detail-modal.active .detail-panel {
+      transform: scale(1);
+      opacity: 1;
+    }
+
+    .detail-header {
+      background: #1a5f7a;
+      color: #fff;
+      padding: 20px;
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      gap: 15px;
+    }
+
+    .detail-header .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .detail-header .close-btn:hover {
+      background: rgba(255,255,255,0.4);
+    }
+
+    .municipio-shape-container {
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .municipio-shape-container svg {
+      width: 70px;
+      height: 70px;
+    }
+
+    .detail-title {
+      flex: 1;
+      padding-right: 30px;
+    }
+
+    .detail-title h2 {
+      margin: 0 0 5px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .detail-title .estado {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .detail-body {
+      padding: 20px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .info-card {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 18px 15px;
+      text-align: center;
+    }
+
+    .info-card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .info-card .label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .info-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #333;
+      margin-top: 4px;
+    }
+
+    .info-card .unit {
+      font-size: 12px;
+      color: #888;
+      font-weight: 400;
+    }
+
+    .risco-card {
+      background: var(--risco-color);
+      color: #fff;
+    }
+
+    .risco-card .label {
+      color: rgba(255,255,255,0.8);
+    }
+
+    .risco-card .value {
+      color: #fff;
+    }
+
+    .risco-card .classificacao {
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Legenda */
+    .legenda {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      margin-top: 15px;
+      padding: 15px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    .legenda-titulo {
+      width: 100%;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 5px;
+    }
+
+    .legenda-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #555;
+    }
+
+    .legenda-cor {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    /* Controles do mapa */
+    .map-controls {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .map-controls button {
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      cursor: pointer;
+      font-size: 20px;
+      color: #333;
+      transition: all 0.2s;
+    }
+
+    .map-controls button:hover {
+      background: #f0f0f0;
+      transform: scale(1.05);
+    }
+
+    /* Tooltip simples */
+    .tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 100;
+      white-space: nowrap;
+    }
+
+    /* Instrucoes */
+    .instrucoes {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(255,255,255,0.95);
+      padding: 10px 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #555;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .instrucoes strong {
+      color: #333;
+    }
+
+    /* Animacao do municipio voando */
+    .flying-municipio {
+      position: fixed;
+      pointer-events: none;
+      z-index: 2000;
+    }
+
+    .flying-municipio svg {
+      filter: drop-shadow(0 4px 15px rgba(0,0,0,0.4));
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Mapa Interativo de Risco de Incendio Florestal</h1>
+    <p class="descricao">
+      Ferramenta de apoio à decisão para operadores da Suzano. Permite visualizar rapidamente os municípios com maior risco de incêndio florestal no Brasil, consultar dados meteorológicos agregados (temperatura, umidade, vento) e planejar a alocação estratégica de recursos de combate a incêndios. O índice de risco é calculado pelo modelo paramétrico FWI (Fire Weather Index), desenvolvido pelo Canadian Forest Service e amplamente utilizado em sistemas de prevenção de incêndios florestais.
+    </p>
+    <p class="referencia">
+      Ref: Van Wagner, C.E. (1987). <em>Development and Structure of the Canadian Forest Fire Weather Index System</em>. Canadian Forestry Service, Forestry Technical Report 35. Ottawa.
+    </p>
+  </div>
+
+  <div class="container">
+    <div class="map-container">
+      <svg id="map"></svg>
+
+      <div class="instrucoes">
+        <strong>Scroll:</strong> Zoom | <strong>Arrastar:</strong> Pan | <strong>Clique:</strong> Ver detalhes
+      </div>
+
+      <div class="map-controls">
+        <button id="zoom-in" title="Aumentar zoom">+</button>
+        <button id="zoom-out" title="Diminuir zoom">-</button>
+        <button id="zoom-reset" title="Resetar visualizacao">&#8634;</button>
+      </div>
+
+      <div class="tooltip"></div>
+    </div>
+  </div>
+
+  <div class="legenda">
+    <div class="legenda-titulo">Nivel de Risco de Incendio</div>
+    <div class="legenda-item">
+      <div class="legenda-cor" style="background: #2ecc71;"></div>
+      <span>Baixo (0-40)</span>
+    </div>
+    <div class="legenda-item">
+      <div class="legenda-cor" style="background: #f1c40f;"></div>
+      <span>Moderado (40-80)</span>
+    </div>
+    <div class="legenda-item">
+      <div class="legenda-cor" style="background: #e67e22;"></div>
+      <span>Alto (80-120)</span>
+    </div>
+    <div class="legenda-item">
+      <div class="legenda-cor" style="background: #e74c3c;"></div>
+      <span>Muito Alto (120-160)</span>
+    </div>
+    <div class="legenda-item">
+      <div class="legenda-cor" style="background: #8b0000;"></div>
+      <span>Critico (160-200)</span>
+    </div>
+  </div>
+
+  <!-- Modal de detalhes -->
+  <div class="detail-modal" id="detailModal">
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-header">
+        <button class="close-btn" id="closeModal">&times;</button>
+        <div class="municipio-shape-container">
+          <svg id="municipioShape" viewBox="0 0 100 100"></svg>
+        </div>
+        <div class="detail-title">
+          <h2 id="municipioNome">-</h2>
+          <div class="estado" id="municipioEstado">-</div>
+        </div>
+      </div>
+      <div class="detail-body">
+        <div class="info-grid">
+          <div class="info-card risco-card full-width" id="riscoCard">
+            <div class="label">Risco Estimado</div>
+            <div class="value" id="riscoValor">-</div>
+            <div class="classificacao" id="riscoClassificacao">-</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Temperatura</div>
+            <div class="value"><span id="temperatura">-</span><span class="unit">°C</span></div>
+          </div>
+          <div class="info-card">
+            <div class="label">Umidade</div>
+            <div class="value"><span id="umidade">-</span><span class="unit">%</span></div>
+          </div>
+          <div class="info-card">
+            <div class="label">Vel. do Vento</div>
+            <div class="value"><span id="vento">-</span><span class="unit">km/h</span></div>
+          </div>
+          <div class="info-card">
+            <div class="label">Codigo IBGE</div>
+            <div class="value" id="codigoIbge" style="font-size: 16px;">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container para municipio voando -->
+  <div class="flying-municipio" id="flyingMunicipio" style="display: none;">
+    <svg viewBox="0 0 100 100" width="120" height="120"></svg>
+  </div>
+
+  <script src="geo.js"></script>
+  <script src="mapa-interativo.js"></script>
+</body>
+</html>
